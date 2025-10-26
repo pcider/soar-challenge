@@ -4,8 +4,9 @@
 
 #define RIGHT_BUTTON    1
 #define UP_BUTTON       2
-#define LEFT_BUTTON     4
-#define DOWN_BUTTON     5
+#define JOYSTICK_VRX     5
+#define JOYSTICK_VRY     4
+#define JOYSTICK_BUTTON     6
 #define A_BUTTON        21
 #define B_BUTTON        47
 
@@ -13,29 +14,30 @@ uint8_t receiver_address[] = {0xd0, 0xcf, 0x13, 0x1d, 0x7f, 0x64};  // replace w
 esp_now_peer_info_t receiver_peer;
 
 typedef struct {
-  bool forward        : 1 ;
-  bool backward       : 1 ;
-  bool left           : 1 ;
-  bool right          : 1 ;
-  bool a_button       : 1 ;
-  bool b_button       : 1 ;
+  int vrx; // 0 - 4095
+  int vry; // 0 - 4095
+  bool button;
 } message_data;
 
-message_data myData;
-message_data oldData;
+message_data curData;
+message_data prevData;
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
-  while(!Serial);
+  while (!Serial);
   Serial.println("Hello World");
 
   pinMode(RIGHT_BUTTON, INPUT_PULLUP);    // this means the pin when
-  pinMode(LEFT_BUTTON,  INPUT_PULLUP);    // not pressed will be
+  // pinMode(LEFT_BUTTON,  INPUT_PULLUP);    // not pressed will be
   pinMode(UP_BUTTON,    INPUT_PULLUP);    // read as HIGH or 1
-  pinMode(DOWN_BUTTON,  INPUT_PULLUP);
+  // pinMode(DOWN_BUTTON,  INPUT_PULLUP);
   pinMode(A_BUTTON,     INPUT_PULLUP);    // to use properly other
   pinMode(B_BUTTON,     INPUT_PULLUP);    // button side to gnd
+
+  pinMode(JOYSTICK_VRX, INPUT);
+  pinMode(JOYSTICK_VRY, INPUT);
+  pinMode(JOYSTICK_BUTTON, INPUT_PULLUP);
 
   WiFi.mode(WIFI_MODE_STA);   // Arduino's wifi library, internally sets up the espressif wifi stack
   // code crashes without the WiFi.mode(WIFI_MODE_STA); line.
@@ -45,7 +47,7 @@ void setup() {
     Serial.println("Error initializing ESP-NOW");
     return;
   }
-  
+
   Serial.println("creating esp_now peer");
   Serial.flush();
   memcpy(receiver_peer.peer_addr, receiver_address, 6);
@@ -62,37 +64,36 @@ void setup() {
   Serial.flush();
 }
 
+int abs(int i) {
+  return i > 0 ? i : -i;
+}
+
 void loop() {
   // put your main code here, to run repeatedly:
-  myData.a_button = !digitalRead(A_BUTTON);       // putting a ! (not operator)
-  myData.b_button = !digitalRead(B_BUTTON);       // to flip the logic of the
-  myData.backward = !digitalRead(DOWN_BUTTON);    // button as the default 
-  myData.forward =  !digitalRead(UP_BUTTON);      // value of the pins are
-  myData.left =     !digitalRead(LEFT_BUTTON);    // HIGH due to the internal
-  myData.right =    !digitalRead(RIGHT_BUTTON);   // pullup set in setup()
+  curData.vrx = analogRead(JOYSTICK_VRX);
+  curData.vry = analogRead(JOYSTICK_VRY);
+  curData.button = digitalRead(JOYSTICK_BUTTON);
+  
+  Serial.printf("x: %d, y: %d, button: %d\n",
+                curData.vrx,
+                curData.vry,
+                curData.button
+               );
 
-  if(
-  myData.a_button != oldData.a_button ||
-  myData.b_button != oldData.b_button ||
-  myData.backward != oldData.backward ||
-  myData.forward  != oldData.forward ||
-  myData.left     != oldData.left ||
-  myData.right    != oldData.right
-  ){
-    memcpy(&oldData, &myData, sizeof(myData));
-    esp_err_t error = esp_now_send(receiver_address, (uint8_t*)&myData, sizeof(myData));    // works for every primitive datatype
+  if (
+    abs(curData.vrx - prevData.vrx) > 20 ||
+    abs(curData.vry - prevData.vry) > 20 ||
+    curData.button != prevData.button
+  ) {
+    memcpy(&prevData, &curData, sizeof(curData));
+    esp_err_t error = esp_now_send(receiver_address, (uint8_t*)&curData, sizeof(curData));    // works for every primitive datatype
     Serial.println(esp_err_to_name(error));
-    if(error == ESP_OK){
-      Serial.printf("sent: %d bytes\n", sizeof(myData));
+    if (error == ESP_OK) {
+      Serial.printf("sent: %d bytes\n", sizeof(curData));
     }
-    if(error == ESP_ERR_ESPNOW_NO_MEM){
+    if (error == ESP_ERR_ESPNOW_NO_MEM) {
       Serial.printf("error occured, increasing delay time next time");
     }
   }
-
-
   delay(50);   // decrease for a higher polling rate, recommended to stay above 30ms due to ESP_NOW limitation
-  
 }
-
-
