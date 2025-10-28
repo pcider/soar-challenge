@@ -14,11 +14,17 @@
 //#define LEFT_FORWARD 6 // left wheel forward (IN_3)
 //#define LEFT_BACKWARD 5 // left wheel reverse (IN_4)
 
+//#define USE_ESP_NOW
+
+#ifdef USE_ESP_NOW
 typedef struct {
   int vel_x; // 0 - 4095
   int vel_y; // 0 - 4095
   int buttons; // button bitmap
 } message_data;
+
+message_data curData;
+#endif
 
 #define STEADY_TOL 50
 #define STEADY_X 0
@@ -28,7 +34,6 @@ typedef struct {
 #define MIN_X (-512)
 #define MIN_Y (-512)
 
-message_data curData;
 
 ControllerPtr btController;
 
@@ -45,10 +50,13 @@ void onConnectedController(ControllerPtr ctl) {
 }
 
 void onDisconnectedController(ControllerPtr ctl) {
+  Serial.printf("controller disconnected idx: %d\n", ctl->index());
+  BP32.forgetBluetoothKeys();
   if (!btController) return;
   if (ctl->index() == btController->index()) btController = NULL;
 }
 
+#ifdef USE_ESP_NOW
 void OnDataRecv(uint8_t * mac, message_data *data, uint8_t len) {
   memcpy(&curData, data, len);
   Serial.printf("x: %d, y: %d, buttons: 0x%x\n",
@@ -56,7 +64,8 @@ void OnDataRecv(uint8_t * mac, message_data *data, uint8_t len) {
                 curData.vel_y,
                 curData.buttons
                );
-} 
+}
+#endif
 
 void setup() {
   // put your setup code here, to run once:
@@ -64,6 +73,7 @@ void setup() {
   while(!Serial);
   Serial.println("Hello World");
 
+#ifdef USE_ESP_NOW
   uint8_t mac_addr[6];
   esp_err_t ret = esp_base_mac_addr_get(mac_addr);
 
@@ -73,35 +83,32 @@ void setup() {
   }else{
     Serial.println("Failed to read Mac address");
   }
+  
+  // setup WiFi
+  WiFi.mode(WIFI_STA);
 
+  // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  // register receiving callback
+  esp_now_register_recv_cb(
+    esp_now_recv_cb_t(OnDataRecv)
+  );
+
+#else
   BP32.setup(&onConnectedController, &onDisconnectedController);
   BP32.forgetBluetoothKeys();
   BP32.enableVirtualDevice(false);
-  
-  // setup WiFi
-//  WiFi.mode(WIFI_STA);
-
-  // Init ESP-NOW
-//  if (esp_now_init() != ESP_OK) {
-//    Serial.println("Error initializing ESP-NOW");
-//    return;
-//  }
-
-  // register receiving callback
-//  esp_now_register_recv_cb(
-//    esp_now_recv_cb_t(OnDataRecv)
-//  );
+#endif
 
   pinMode(RIGHT_FORWARD, OUTPUT);
   pinMode(RIGHT_BACKWARD, OUTPUT);
   pinMode(LEFT_FORWARD, OUTPUT);
   pinMode(LEFT_BACKWARD, OUTPUT);
-
   analogWriteResolution(10);
-//  analogWriteFrequency(100);
-  
-//  curData.vrx = STEADY_X;
-//  curData.vry = STEADY_Y;
 }
 
 void loop() {
@@ -109,26 +116,33 @@ void loop() {
   static int vel_y = 0;
   static double scale = 1;
   static bool prevPressed = false;
+  bool buttonPressed = false;
+
+#ifdef USE_ESP_NOW
+#else
   
   bool dataUpdated = BP32.update();
   if (dataUpdated && btController && btController->isConnected() && btController->hasData()) {
     vel_x = btController->axisRX();
     vel_y = -btController->axisY(); // y axis is flipped for left joystick
-    
-    if (!prevPressed && btController->y()) {
-      prevPressed = true;
-      if (scale == 1.0) {
-        scale = 0.5;
-      } else if (scale == 0.5) {
-        scale = 0.25;
-      } else if (scale == 0.25) {
-        scale = 0.125;
-      } else if (scale == 0.125) {
-        scale = 1.0;
-      }
-    } else if (!curData.buttons) {
-      prevPressed = false;
+    buttonPressed = btController->y();
+  }
+#endif
+
+  if (!prevPressed && buttonPressed) {
+    prevPressed = true;
+    if (scale == 1.0) {
+      scale = 0.5;
+    } else if (scale == 0.5) {
+      scale = 0.25;
+    } else if (scale == 0.25) {
+      scale = 0.125;
+    } else if (scale == 0.125) {
+      scale = 1.0;
     }
+    Serial.printf("changed scale to %f\n", scale);
+  } else if (!buttonPressed) {
+    prevPressed = false;
   }
 
   int x = vel_x * 2;
