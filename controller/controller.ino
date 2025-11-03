@@ -1,7 +1,7 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_err.h>
-#include <Bluepad32.h>
+//#include <Bluepad32.h>x  aaaa
 
 //#define RIGHT_BUTTON    1
 //#define UP_BUTTON       2
@@ -18,8 +18,8 @@ uint8_t receiver_address[] = {0x80, 0xb5, 0x4e, 0xe3, 0xe1, 0x2c};  // replace w
 esp_now_peer_info_t receiver_peer;
 
 typedef struct {
-  int vrx; // 0 - 4095
-  int vry; // 0 - 4095
+  int vel_x; // -1023 - 1023
+  int vel_y; // -1023 - 1023
   bool button;
 } message_data;
 
@@ -31,19 +31,16 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
   Serial.println("Hello World");
-
-
-  delay(100);
 //  pinMode(RIGHT_BUTTON, INPUT_PULLUP);    // this means the pin when
 //  // pinMode(LEFT_BUTTON,  INPUT_PULLUP);    // not pressed will be
 //  pinMode(UP_BUTTON,    INPUT_PULLUP);    // read as HIGH or 1
 //  // pinMode(DOWN_BUTTON,  INPUT_PULLUP);
 //  pinMode(A_BUTTON,     INPUT_PULLUP);    // to use properly other
 //  pinMode(B_BUTTON,     INPUT_PULLUP);    // button side to gnd
-//
+
   pinMode(JOYSTICK_LEFT_VRX, INPUT);
   pinMode(JOYSTICK_LEFT_VRY, INPUT);
-  pinMode(JOYSTICK_RIGHT_VRX, INPUT);
+  pinMode(JOYSTICK_RIGHT_VRX,  INPUT);
   pinMode(JOYSTICK_RIGHT_VRY, INPUT);
   pinMode(BUTTON_1, INPUT);
 
@@ -78,22 +75,27 @@ int abs(int i) {
 }
 
 void loop() {
-  bool dataUpdated = BP32.update();
-  if (dataUpdated && btController && btController->isConnected() && btController->hasData()) {
-    curData.vrx = btController->axisRX(); // analogRead(JOYSTICK_VRX);
-    curData.vry = -btController->axisY(); // y axis is flipped for left joystick
-    // dumpGamepad(btController);
-  }
+  Serial.printf("l: (%d %d), r: (%d %d)\n",
+    analogRead(JOYSTICK_LEFT_VRX),
+    analogRead(JOYSTICK_LEFT_VRY),
+    analogRead(JOYSTICK_RIGHT_VRX),
+    analogRead(JOYSTICK_RIGHT_VRY)
+  );
+  curData.vel_y = analogRead(JOYSTICK_LEFT_VRY); // 0 - 4096
+  curData.vel_x = analogRead(JOYSTICK_RIGHT_VRX); // 0 - 4096
+  curData.vel_y -= 2048;
+  curData.vel_x -= 2048;
+  curData.vel_y /= 2;
+  curData.vel_x /= 2;
 
-   delay(50);
   if (
-    abs(curData.vrx - prevData.vrx) > 5 ||
-    abs(curData.vry - prevData.vry) > 5 ||
+    abs(curData.vel_x - prevData.vel_x) > 5 ||
+    abs(curData.vel_y - prevData.vel_y) > 5 ||
     curData.button != prevData.button
   ) {
-    Serial.printf("x: %d, y: %d, button: %d\n",
-                  curData.vrx,
-                  curData.vry,
+    Serial.printf("x: %d, y: %d, button: %d\n",  
+                  curData.vel_x,
+                  curData.vel_y,
                   curData.button
                  );
 
